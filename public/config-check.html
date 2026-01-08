@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Config Check</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .good { background: #d4edda; color: #155724; }
+        .bad { background: #f8d7da; color: #721c24; }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>QR Inventory App - Configuration Check</h1>
+
+    <div id="results"></div>
+
+    <script>
+        const results = document.getElementById('results');
+
+        function addStatus(label, value, isGood) {
+            const div = document.createElement('div');
+            div.className = `status ${isGood ? 'good' : 'bad'}`;
+            div.innerHTML = `<strong>${label}:</strong> ${value}`;
+            results.appendChild(div);
+        }
+
+        // Check environment variables (these are injected at build time in Vite)
+        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        const sheetId = import.meta.env.VITE_GOOGLE_SHEET_ID;
+        const sheetName = import.meta.env.VITE_SHEET_NAME;
+
+        addStatus('Client ID', clientId ? '✓ Set' : '✗ Missing', !!clientId);
+        addStatus('Sheet ID', sheetId ? '✓ Set' : '✗ Missing', !!sheetId);
+        addStatus('Sheet Name', sheetName || 'Not set (will default to Sheet1)', !!sheetName);
+
+        // Check if gapi script loads
+        const script = document.createElement('script');
+        script.src = 'https://apis.google.com/js/api.js';
+        script.onload = () => addStatus('Google API Script', '✓ Loaded', true);
+        script.onerror = () => addStatus('Google API Script', '✗ Failed to load', false);
+        document.head.appendChild(script);
+
+        // Show full config (censored)
+        const pre = document.createElement('pre');
+        pre.textContent = `
+Configuration Details:
+----------------------
+Client ID: ${clientId ? clientId.substring(0, 20) + '...' : 'NOT SET'}
+Sheet ID: ${sheetId ? sheetId.substring(0, 20) + '...' : 'NOT SET'}
+Sheet Name: ${sheetName || 'NOT SET'}
+URL: ${window.location.href}
+User Agent: ${navigator.userAgent}
+        `;
+        results.appendChild(pre);
+    </script>
+</body>
+</html>

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Box, CssBaseline } from '@mui/material';
+import { Box, CssBaseline, Typography } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
@@ -54,22 +54,47 @@ const theme = createTheme({
 });
 
 function AppContent() {
-  const { isAuthenticated, isInitialized } = useAuth();
+  const { isAuthenticated, isInitialized, error: authError } = useAuth();
   const [activeTab, setActiveTab] = useState('generate');
   const [gapiLoaded, setGapiLoaded] = useState(false);
+  const [gapiError, setGapiError] = useState(null);
 
   useEffect(() => {
     loadGapiScript()
       .then(() => {
+        console.log('Google API script loaded successfully');
         setGapiLoaded(true);
       })
       .catch(err => {
         console.error('Failed to load Google API script:', err);
+        setGapiError(err.message);
       });
   }, []);
 
+  // Show loading state
   if (!isInitialized || !gapiLoaded) {
-    return <LoadingSpinner message="Initializing app..." />;
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+        {gapiError ? (
+          <>
+            <Typography variant="h6" color="error" gutterBottom>Failed to Load Google API</Typography>
+            <Typography variant="body2" color="text.secondary">{gapiError}</Typography>
+          </>
+        ) : (
+          <LoadingSpinner message="Initializing app..." />
+        )}
+      </Box>
+    );
+  }
+
+  // Show auth error if any
+  if (authError && !isAuthenticated) {
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 3 }}>
+        <Typography variant="h6" color="error" gutterBottom>Authentication Error</Typography>
+        <Typography variant="body2" color="text.secondary">{authError}</Typography>
+      </Box>
+    );
   }
 
   if (!isAuthenticated) {
