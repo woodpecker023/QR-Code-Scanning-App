@@ -3,6 +3,15 @@ export const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 export const GOOGLE_SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID;
 export const SHEET_NAME = import.meta.env.VITE_SHEET_NAME || 'Sheet1';
 
+// Debug logging
+console.log('🔧 Configuration loaded:', {
+  hasClientId: !!GOOGLE_CLIENT_ID,
+  hasSheetId: !!GOOGLE_SHEET_ID,
+  sheetName: SHEET_NAME,
+  clientIdPreview: GOOGLE_CLIENT_ID ? GOOGLE_CLIENT_ID.substring(0, 20) + '...' : 'NOT SET',
+  sheetIdPreview: GOOGLE_SHEET_ID ? GOOGLE_SHEET_ID.substring(0, 20) + '...' : 'NOT SET'
+});
+
 // Google API scopes
 export const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',

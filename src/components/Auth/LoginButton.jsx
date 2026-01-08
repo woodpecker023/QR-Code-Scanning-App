@@ -11,6 +11,34 @@ import { GOOGLE_SCOPES } from '../../utils/constants';
 
 export default function LoginButton() {
   const { handleLoginSuccess, error } = useAuth();
+  const { GOOGLE_CLIENT_ID } = require('../../utils/constants');
+
+  // Check if client ID is configured
+  if (!GOOGLE_CLIENT_ID) {
+    return (
+      <Box className="login-container">
+        <Paper
+          elevation={3}
+          sx={{
+            padding: 4,
+            borderRadius: 2,
+            maxWidth: 400,
+            textAlign: 'center'
+          }}
+        >
+          <Typography variant="h4" gutterBottom fontWeight="bold" color="error">
+            Configuration Error
+          </Typography>
+          <Typography variant="body1" color="text.secondary" paragraph>
+            Google Client ID is not configured. Please add environment variables to Vercel and redeploy.
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Check deployment documentation for setup instructions.
+          </Typography>
+        </Paper>
+      </Box>
+    );
+  }
 
   const login = useGoogleLogin({
     onSuccess: handleLoginSuccess,
