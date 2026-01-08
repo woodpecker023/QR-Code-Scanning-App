@@ -30,72 +30,125 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
 
     try {
       console.log('Starting camera...');
+      console.log('User agent:', navigator.userAgent);
+      console.log('Platform:', navigator.platform);
+
+      // Detect iOS
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      console.log('Is iOS:', isIOS);
+
+      // Test camera permissions first
+      try {
+        console.log('Testing camera access...');
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        console.log('Camera access granted, stopping test stream');
+        stream.getTracks().forEach(track => track.stop());
+      } catch (permErr) {
+        console.error('Camera permission error:', permErr);
+        throw new Error('Camera access denied. Please allow camera access in your browser settings.');
+      }
+
       const html5QrCode = new Html5Qrcode(readerIdRef.current);
       scannerRef.current = html5QrCode;
 
       const config = {
-        fps: APP_CONFIG.SCANNER_FPS,
-        qrbox: {
-          width: APP_CONFIG.SCANNER_QRBOX_SIZE,
-          height: APP_CONFIG.SCANNER_QRBOX_SIZE
-        },
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
         aspectRatio: 1.0,
-        disableFlip: false
+        disableFlip: false,
+        // iOS-specific settings
+        videoConstraints: {
+          facingMode: 'environment',
+          advanced: [{ focusMode: 'continuous' }]
+        }
       };
 
-      // Try to get available cameras first
-      let cameraId = null;
-      try {
-        const devices = await Html5Qrcode.getCameras();
-        console.log('Available cameras:', devices);
+      console.log('Config:', config);
 
-        if (devices && devices.length > 0) {
-          // Prefer back camera
-          const backCamera = devices.find(device =>
-            device.label.toLowerCase().includes('back') ||
-            device.label.toLowerCase().includes('rear') ||
-            device.label.toLowerCase().includes('environment')
-          );
-          cameraId = backCamera ? backCamera.id : devices[0].id;
-          console.log('Using camera:', cameraId);
-        }
-      } catch (devErr) {
-        console.warn('Could not enumerate cameras:', devErr);
-      }
-
-      // Start scanning with camera ID or facingMode
-      if (cameraId) {
+      // For iOS, use facingMode directly (more reliable than camera ID)
+      if (isIOS) {
+        console.log('Using iOS camera initialization...');
         await html5QrCode.start(
-          cameraId,
+          { facingMode: 'environment' },
           config,
           (decodedText) => {
             console.log('QR Code detected:', decodedText);
             onScanSuccess(decodedText);
           },
           (errorMessage) => {
-            // Scanning errors are frequent, so we don't log them
+            // Silent - scanning errors are normal
           }
         );
       } else {
-        // Fallback to facingMode
-        await html5QrCode.start(
-          { facingMode: { exact: "environment" } },
-          config,
-          (decodedText) => {
-            console.log('QR Code detected:', decodedText);
-            onScanSuccess(decodedText);
-          },
-          (errorMessage) => {
-            // Scanning errors are frequent, so we don't log them
+        // For other devices, try to enumerate cameras
+        console.log('Using standard camera initialization...');
+        let cameraId = null;
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          console.log('Available cameras:', devices);
+
+          if (devices && devices.length > 0) {
+            const backCamera = devices.find(device =>
+              device.label.toLowerCase().includes('back') ||
+              device.label.toLowerCase().includes('rear') ||
+              device.label.toLowerCase().includes('environment')
+            );
+            cameraId = backCamera ? backCamera.id : devices[0].id;
+            console.log('Using camera:', cameraId);
           }
-        );
+        } catch (devErr) {
+          console.warn('Could not enumerate cameras:', devErr);
+        }
+
+        if (cameraId) {
+          await html5QrCode.start(
+            cameraId,
+            config,
+            (decodedText) => {
+              console.log('QR Code detected:', decodedText);
+              onScanSuccess(decodedText);
+            },
+            (errorMessage) => {
+              // Silent
+            }
+          );
+        } else {
+          await html5QrCode.start(
+            { facingMode: 'environment' },
+            config,
+            (decodedText) => {
+              console.log('QR Code detected:', decodedText);
+              onScanSuccess(decodedText);
+            },
+            (errorMessage) => {
+              // Silent
+            }
+          );
+        }
       }
 
       console.log('Camera started successfully');
       onScanStart();
     } catch (err) {
       console.error('Error starting scanner:', err);
-      const errorMsg = err.message || 'Failed to start camera. Please ensure camera permissions are granted.';
+      console.error('Error name:', err.name);
+      console.error('Error stack:', err.stack);
+
+      let errorMsg = 'Failed to start camera.';
+
+      if (err.name === 'NotAllowedError' || err.message.includes('denied')) {
+        errorMsg = 'Camera access denied. Please allow camera access in Settings > Safari > Camera.';
+      } else if (err.name === 'NotFoundError') {
+        errorMsg = 'No camera found on this device.';
+      } else if (err.name === 'NotReadableError') {
+        errorMsg = 'Camera is already in use by another app.';
+      } else {
+        errorMsg = err.message || errorMsg;
+      }
+
       setCameraError(errorMsg);
       onScanError(errorMsg);
     }
