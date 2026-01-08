@@ -1,145 +1,141 @@
 /**
  * CameraView Component
  * Camera preview and scanning controls
+ * Using jsQR for better iOS compatibility
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { Box, Button, Paper, Typography, Alert } from '@mui/material';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import StopIcon from '@mui/icons-material/Stop';
-import { Html5Qrcode } from 'html5-qrcode';
-import { APP_CONFIG } from '../../utils/constants';
+import jsQR from 'jsqr';
 
 export default function CameraView({ isScanning, onScanSuccess, onScanError, onScanStart, onScanStop }) {
-  const scannerRef = useRef(null);
-  const readerIdRef = useRef('qr-reader');
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const animationFrameRef = useRef(null);
   const [cameraError, setCameraError] = useState(null);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.stop().catch(err => {
-          console.error('Error stopping scanner on unmount:', err);
-        });
-      }
+      stopScanning();
     };
   }, []);
+
+  const stopScanning = () => {
+    // Stop animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Stop video stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    // Clear video
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const scanQRCode = () => {
+    if (!videoRef.current || !canvasRef.current) {
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+
+    // Check if video is ready
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      animationFrameRef.current = requestAnimationFrame(scanQRCode);
+      return;
+    }
+
+    // Set canvas size to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    // Draw video frame to canvas
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // Get image data
+    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+
+    // Scan for QR code
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'dontInvert',
+    });
+
+    if (code) {
+      console.log('QR Code detected:', code.data);
+
+      // Draw detection box (visual feedback)
+      context.beginPath();
+      context.moveTo(code.location.topLeftCorner.x, code.location.topLeftCorner.y);
+      context.lineTo(code.location.topRightCorner.x, code.location.topRightCorner.y);
+      context.lineTo(code.location.bottomRightCorner.x, code.location.bottomRightCorner.y);
+      context.lineTo(code.location.bottomLeftCorner.x, code.location.bottomLeftCorner.y);
+      context.closePath();
+      context.strokeStyle = '#00FF00';
+      context.lineWidth = 4;
+      context.stroke();
+
+      // Call success callback
+      onScanSuccess(code.data);
+      return; // Stop scanning after successful detection
+    }
+
+    // Continue scanning
+    animationFrameRef.current = requestAnimationFrame(scanQRCode);
+  };
 
   const handleStartScan = async () => {
     setCameraError(null);
 
     try {
       console.log('Starting camera...');
-      console.log('User agent:', navigator.userAgent);
-      console.log('Platform:', navigator.platform);
 
-      // Detect iOS
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      console.log('Is iOS:', isIOS);
-
-      // Test camera permissions first
-      try {
-        console.log('Testing camera access...');
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' }
-        });
-        console.log('Camera access granted, stopping test stream');
-        stream.getTracks().forEach(track => track.stop());
-      } catch (permErr) {
-        console.error('Camera permission error:', permErr);
-        throw new Error('Camera access denied. Please allow camera access in your browser settings.');
-      }
-
-      const html5QrCode = new Html5Qrcode(readerIdRef.current);
-      scannerRef.current = html5QrCode;
-
-      const config = {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-        disableFlip: false,
-        // iOS-specific settings
-        videoConstraints: {
+      // Request camera access
+      const constraints = {
+        video: {
           facingMode: 'environment',
-          advanced: [{ focusMode: 'continuous' }]
-        }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
       };
 
-      console.log('Config:', config);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
 
-      // For iOS, use facingMode directly (more reliable than camera ID)
-      if (isIOS) {
-        console.log('Using iOS camera initialization...');
-        await html5QrCode.start(
-          { facingMode: 'environment' },
-          config,
-          (decodedText) => {
-            console.log('QR Code detected:', decodedText);
-            onScanSuccess(decodedText);
-          },
-          (errorMessage) => {
-            // Silent - scanning errors are normal
-          }
-        );
-      } else {
-        // For other devices, try to enumerate cameras
-        console.log('Using standard camera initialization...');
-        let cameraId = null;
-        try {
-          const devices = await Html5Qrcode.getCameras();
-          console.log('Available cameras:', devices);
+      console.log('Camera stream obtained');
 
-          if (devices && devices.length > 0) {
-            const backCamera = devices.find(device =>
-              device.label.toLowerCase().includes('back') ||
-              device.label.toLowerCase().includes('rear') ||
-              device.label.toLowerCase().includes('environment')
-            );
-            cameraId = backCamera ? backCamera.id : devices[0].id;
-            console.log('Using camera:', cameraId);
-          }
-        } catch (devErr) {
-          console.warn('Could not enumerate cameras:', devErr);
-        }
+      // Set video source
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
 
-        if (cameraId) {
-          await html5QrCode.start(
-            cameraId,
-            config,
-            (decodedText) => {
-              console.log('QR Code detected:', decodedText);
-              onScanSuccess(decodedText);
-            },
-            (errorMessage) => {
-              // Silent
-            }
-          );
-        } else {
-          await html5QrCode.start(
-            { facingMode: 'environment' },
-            config,
-            (decodedText) => {
-              console.log('QR Code detected:', decodedText);
-              onScanSuccess(decodedText);
-            },
-            (errorMessage) => {
-              // Silent
-            }
-          );
-        }
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          console.log('Video metadata loaded, starting scan loop');
+          videoRef.current.play();
+          onScanStart();
+          scanQRCode(); // Start scanning
+        };
       }
 
-      console.log('Camera started successfully');
-      onScanStart();
     } catch (err) {
-      console.error('Error starting scanner:', err);
-      console.error('Error name:', err.name);
-      console.error('Error stack:', err.stack);
+      console.error('Camera error:', err);
 
       let errorMsg = 'Failed to start camera.';
 
-      if (err.name === 'NotAllowedError' || err.message.includes('denied')) {
+      if (err.name === 'NotAllowedError') {
         errorMsg = 'Camera access denied. Please allow camera access in Settings > Safari > Camera.';
       } else if (err.name === 'NotFoundError') {
         errorMsg = 'No camera found on this device.';
@@ -154,17 +150,9 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
     }
   };
 
-  const handleStopScan = async () => {
-    if (scannerRef.current) {
-      try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-        scannerRef.current = null;
-        onScanStop();
-      } catch (err) {
-        console.error('Error stopping scanner:', err);
-      }
-    }
+  const handleStopScan = () => {
+    stopScanning();
+    onScanStop();
   };
 
   return (
@@ -175,27 +163,55 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
         </Alert>
       )}
 
-      <Box
-        id={readerIdRef.current}
-        sx={{
-          width: '100%',
-          maxWidth: '500px',
-          margin: '0 auto',
-          borderRadius: 1,
-          overflow: 'hidden',
-          backgroundColor: '#000',
-          minHeight: isScanning ? '400px' : '200px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-      >
+      <Box sx={{ position: 'relative', width: '100%', maxWidth: '500px', margin: '0 auto' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            width: '100%',
+            height: 'auto',
+            maxHeight: '400px',
+            borderRadius: '8px',
+            backgroundColor: '#000',
+            display: isScanning ? 'block' : 'none'
+          }}
+        />
+
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            display: isScanning ? 'block' : 'none',
+            pointerEvents: 'none'
+          }}
+        />
+
         {!isScanning && (
-          <Box sx={{ textAlign: 'center', color: 'white', padding: 3 }}>
-            <Typography variant="body1">Click "Start Scanning" to begin</Typography>
-            <Typography variant="caption" sx={{ marginTop: 1, display: 'block', opacity: 0.7 }}>
-              Make sure to allow camera access when prompted
-            </Typography>
+          <Box
+            sx={{
+              width: '100%',
+              minHeight: '300px',
+              borderRadius: '8px',
+              backgroundColor: '#000',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              padding: 3
+            }}
+          >
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="body1">Click "Start Scanning" to begin</Typography>
+              <Typography variant="caption" sx={{ marginTop: 1, display: 'block', opacity: 0.7 }}>
+                Make sure to allow camera access when prompted
+              </Typography>
+            </Box>
           </Box>
         )}
       </Box>
