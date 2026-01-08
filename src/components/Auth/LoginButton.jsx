@@ -7,11 +7,10 @@ import { useGoogleLogin } from '@react-oauth/google';
 import { Button, Box, Typography, Paper } from '@mui/material';
 import GoogleIcon from '@mui/icons-material/Google';
 import { useAuth } from '../../hooks/useAuth';
-import { GOOGLE_SCOPES } from '../../utils/constants';
+import { GOOGLE_SCOPES, GOOGLE_CLIENT_ID } from '../../utils/constants';
 
 export default function LoginButton() {
   const { handleLoginSuccess, error } = useAuth();
-  const { GOOGLE_CLIENT_ID } = require('../../utils/constants');
 
   // Check if client ID is configured
   if (!GOOGLE_CLIENT_ID) {
