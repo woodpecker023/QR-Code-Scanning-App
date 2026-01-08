@@ -3,8 +3,8 @@
  * Camera preview and scanning controls
  */
 
-import { useEffect, useRef } from 'react';
-import { Box, Button, Paper } from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
+import { Box, Button, Paper, Typography, Alert } from '@mui/material';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import StopIcon from '@mui/icons-material/Stop';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -13,10 +13,11 @@ import { APP_CONFIG } from '../../utils/constants';
 export default function CameraView({ isScanning, onScanSuccess, onScanError, onScanStart, onScanStop }) {
   const scannerRef = useRef(null);
   const readerIdRef = useRef('qr-reader');
+  const [cameraError, setCameraError] = useState(null);
 
   useEffect(() => {
     return () => {
-      if (scannerRef.current && scannerRef.current.isScanning) {
+      if (scannerRef.current) {
         scannerRef.current.stop().catch(err => {
           console.error('Error stopping scanner on unmount:', err);
         });
@@ -25,7 +26,10 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
   }, []);
 
   const handleStartScan = async () => {
+    setCameraError(null);
+
     try {
+      console.log('Starting camera...');
       const html5QrCode = new Html5Qrcode(readerIdRef.current);
       scannerRef.current = html5QrCode;
 
@@ -35,31 +39,73 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
           width: APP_CONFIG.SCANNER_QRBOX_SIZE,
           height: APP_CONFIG.SCANNER_QRBOX_SIZE
         },
-        aspectRatio: 1.0
+        aspectRatio: 1.0,
+        disableFlip: false
       };
 
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        (decodedText) => {
-          onScanSuccess(decodedText);
-        },
-        (errorMessage) => {
-          // Scanning errors are frequent, so we don't log them
-        }
-      );
+      // Try to get available cameras first
+      let cameraId = null;
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        console.log('Available cameras:', devices);
 
+        if (devices && devices.length > 0) {
+          // Prefer back camera
+          const backCamera = devices.find(device =>
+            device.label.toLowerCase().includes('back') ||
+            device.label.toLowerCase().includes('rear') ||
+            device.label.toLowerCase().includes('environment')
+          );
+          cameraId = backCamera ? backCamera.id : devices[0].id;
+          console.log('Using camera:', cameraId);
+        }
+      } catch (devErr) {
+        console.warn('Could not enumerate cameras:', devErr);
+      }
+
+      // Start scanning with camera ID or facingMode
+      if (cameraId) {
+        await html5QrCode.start(
+          cameraId,
+          config,
+          (decodedText) => {
+            console.log('QR Code detected:', decodedText);
+            onScanSuccess(decodedText);
+          },
+          (errorMessage) => {
+            // Scanning errors are frequent, so we don't log them
+          }
+        );
+      } else {
+        // Fallback to facingMode
+        await html5QrCode.start(
+          { facingMode: { exact: "environment" } },
+          config,
+          (decodedText) => {
+            console.log('QR Code detected:', decodedText);
+            onScanSuccess(decodedText);
+          },
+          (errorMessage) => {
+            // Scanning errors are frequent, so we don't log them
+          }
+        );
+      }
+
+      console.log('Camera started successfully');
       onScanStart();
     } catch (err) {
       console.error('Error starting scanner:', err);
-      onScanError(err.message || 'Failed to start camera. Please ensure camera permissions are granted.');
+      const errorMsg = err.message || 'Failed to start camera. Please ensure camera permissions are granted.';
+      setCameraError(errorMsg);
+      onScanError(errorMsg);
     }
   };
 
   const handleStopScan = async () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
+    if (scannerRef.current) {
       try {
         await scannerRef.current.stop();
+        scannerRef.current.clear();
         scannerRef.current = null;
         onScanStop();
       } catch (err) {
@@ -70,6 +116,12 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
 
   return (
     <Paper elevation={2} sx={{ padding: 2 }}>
+      {cameraError && (
+        <Alert severity="error" sx={{ marginBottom: 2 }}>
+          {cameraError}
+        </Alert>
+      )}
+
       <Box
         id={readerIdRef.current}
         sx={{
@@ -79,7 +131,7 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
           borderRadius: 1,
           overflow: 'hidden',
           backgroundColor: '#000',
-          minHeight: isScanning ? '300px' : '200px',
+          minHeight: isScanning ? '400px' : '200px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center'
@@ -87,7 +139,10 @@ export default function CameraView({ isScanning, onScanSuccess, onScanError, onS
       >
         {!isScanning && (
           <Box sx={{ textAlign: 'center', color: 'white', padding: 3 }}>
-            Click "Start Scanning" to begin
+            <Typography variant="body1">Click "Start Scanning" to begin</Typography>
+            <Typography variant="caption" sx={{ marginTop: 1, display: 'block', opacity: 0.7 }}>
+              Make sure to allow camera access when prompted
+            </Typography>
           </Box>
         )}
       </Box>
